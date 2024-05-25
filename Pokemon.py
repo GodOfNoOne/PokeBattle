@@ -20,16 +20,24 @@ moves_ds=moves_class.get_moves()
 
 class pokemon:
     
-    def set_Ev(self):
-        ev_counter = 510
-        hp = atk = defense = sp_atk = sp_def = spd = 85
+    def set_Ev(self,evs=[85,85,85,85,85,85]):
+        hp,atk,defense,sp_atk,sp_def,spd=evs
         self.HP=(self.HP*2+hp//4)+110
         self.Attack=(self.Attack*2+atk//4)+5
         self.Defense=(self.Defense*2+defense//4)+5
         self.Special_attack=(self.Special_attack*2+sp_atk//4)+5
         self.Special_defense=(self.Special_defense*2+sp_def//4)+5
         self.Speed=(self.Speed*2+spd//4)+5
+    
+    def set_moves(self,moves):
+        self.move_list=moves
+        chosed_moves= pokemove.where(pokemove['Pokemon']==self.Name).dropna(how='all')
+        self.moveset = chosed_moves.merge(moves_ds,left_on="Move",right_on="Name")
+        self.moveset=self.moveset.drop(columns=['Pokemon','Move','Introducted_in'])
+        self.moveset=self.moveset.where(self.moveset["Name"].isin(moves)).dropna(how='all')
+        
 
+        self.move_list=self.moveset["Name"].tolist()
     def __init__(self, df):
         self.df = df
         self.Name = str(df["Name"].values[0])
@@ -43,7 +51,6 @@ class pokemon:
         self.Speed = int(df["Speed"].values[0])
         self.mult_stages = [0,0,0,0,0] #atk,def,spatk,spdef,spd
         self.img= str(df["image_url"].values[0])
-        self.set_Ev()
         self.max_HP = self.HP
         self.initial_Attack = self.Attack
         self.initial_Defense = self.Defense

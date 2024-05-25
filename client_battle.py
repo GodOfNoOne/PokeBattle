@@ -56,7 +56,7 @@ class PokemonFrame(ctk.CTkFrame):
         self.hp_bar = Progressbar(self, length=width, mode='determinate', value=pokemon_hp, maximum=pokemon_hp,style="green.Horizontal.TProgressbar")
         self.hp_bar.pack()
 
-        cond_img = Image.open("Assets/BRN.png")
+        cond_img = Image.open("Assets\Effects\PAR.png")
         self.cond_img = ctk.CTkImage(cond_img, size=(100, 50))
         self.cond_label = ctk.CTkLabel(self, image=self.cond_img, text="")
 
@@ -141,7 +141,7 @@ class SwitchOrMove(ctk.CTkFrame):
                 img = Image.open(BytesIO(res.content))
                 img.save(f"Cached_Images/{pokemon.Name}.png")
 
-    def __init__(self, master, team_pokemon, selected_pokemon, opponent_pokemon, **kwargs):
+    def __init__(self, master, team_pokemon, selected_pokemon, opponent_pokemon,client_socket, **kwargs):
         super().__init__(master, **kwargs)
         self.team = team_pokemon
         self.selected_pokemon = selected_pokemon
@@ -153,13 +153,13 @@ class SwitchOrMove(ctk.CTkFrame):
         self.attack_button = ctk.CTkButton(self, text="Attack", command=lambda: self.show_moveset(self.selected_pokemon.move_list, self.selected_pokemon.moveset))
         self.attack_button.place(relx=0, rely=0)
 
-        self.switch_button = ctk.CTkButton(self, text="Switch", command=lambda: self.show_team(self.master))
+        self.switch_button = ctk.CTkButton(self, text="Switch", command=lambda: self.show_team(client_socket,self.master))
         self.switch_button.place(relx=0, rely=0.15)
 
-        self.button1 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button1.cget("text")))
-        self.button2 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button2.cget("text")))
-        self.button3 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button3.cget("text")))
-        self.button4 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button4.cget("text")))
+        self.button1 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button1.cget("text"),client_socket))
+        self.button2 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button2.cget("text"),client_socket))
+        self.button3 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button3.cget("text"),client_socket))
+        self.button4 = ctk.CTkButton(self, text="none", command=lambda: self.perform_move(self.master, self.button4.cget("text"),client_socket))
 
         self.pokebutton1 = ctk.CTkButton(self, width=100, height=100)
         self.pokebutton2 = ctk.CTkButton(self, width=100, height=100)
@@ -203,11 +203,21 @@ class SwitchOrMove(ctk.CTkFrame):
             b.place_forget()
         self.wait_box.pack()
 
-    def perform_move(self, master, move):
+    def perform_move(self, master, move,client_socket):
         def send_move_and_receive_result():
             client_socket.send(f"move:{move}".encode())
             self.wait_for_turn()
             result = client_socket.recv(1024).decode()
+            if result=="You Won":
+                master.result_box.configure(state="normal")
+                master.result_box.delete('0.0', "end")
+                master.result_box.insert("0.0", result)
+                master.result_box.configure(state="disabled")
+                self.wait_box.configure(state="normal")
+                self.wait_box.delete('0.0', "end")
+                self.wait_box.insert("0.0", "You Won by default: opponent left the game")
+                self.wait_box.configure(state="disabled")
+                return
 
             client_socket.send("Give results".encode())
 
@@ -232,7 +242,7 @@ class SwitchOrMove(ctk.CTkFrame):
             if self.selected_pokemon.has_status_effect():
                 img_dir = "BRN" if self.selected_pokemon.burn else "PAR" if self.selected_pokemon.paralyze else "PSN" if self.selected_pokemon.poison else "FRZ" if self.selected_pokemon.freeze else ""
                 if img_dir != "":
-                    img = Image.open(f"Assets/{img_dir}.png")
+                    img = Image.open(f"Assets/Effects/{img_dir}.png")
                     master.m_pokemon_frame.place_condition(img)
             else:
                 master.m_pokemon_frame.clear_condition()
@@ -240,7 +250,7 @@ class SwitchOrMove(ctk.CTkFrame):
             if self.opponent_pokemon.has_status_effect():
                 img_dir = "BRN" if self.opponent_pokemon.burn else "PAR" if self.opponent_pokemon.paralyze else "PSN" if self.opponent_pokemon.poison else "FRZ" if self.opponent_pokemon.freeze else ""
                 if img_dir != "":
-                    img = Image.open(f"Assets/{img_dir}.png")
+                    img = Image.open(f"Assets/Effects/{img_dir}.png")
                     master.e_pokemon_frame.place_condition(img)
             else:
                 master.e_pokemon_frame.clear_condition()
@@ -258,7 +268,7 @@ class SwitchOrMove(ctk.CTkFrame):
             if result=="Next Turn":
                 if self.selected_pokemon.HP <= 0:
                     self.return_def()
-                    self.show_team(master,show_return=False)
+                    self.show_team(client_socket,master,show_return=False)
                 else:
                     self.return_def()
             else:
@@ -304,7 +314,7 @@ class SwitchOrMove(ctk.CTkFrame):
         self.infobox.configure(state="disabled")
 
 
-    def show_team(self,master, show_return=True):
+    def show_team(self,client_socket,master, show_return=True):
         self.switch_button.place_forget()
         self.attack_button.place_forget()
         i = 0
@@ -314,7 +324,7 @@ class SwitchOrMove(ctk.CTkFrame):
                 img = Image.open(f"Cached_Images/{t.Name}.png")
                 img = ctk.CTkImage(img, size=(100, 100))
 
-                setattr(self, f'pokebutton{i + 1}', ctk.CTkButton(self, width=100, height=100, text="", image=img, command=lambda p=t: self.switch_pokemon(master,p)))
+                setattr(self, f'pokebutton{i + 1}', ctk.CTkButton(self, width=100, height=100, text="", image=img, command=lambda p=t: self.switch_pokemon(master,p,client_socket=client_socket)))
                 b = getattr(self, f'pokebutton{i + 1}')
                 b.configure(image=img, text="")
                 if counter <= 2:
@@ -327,11 +337,21 @@ class SwitchOrMove(ctk.CTkFrame):
             self.return_button = ctk.CTkButton(self, text="return", command=self.return_def)
             self.return_button.place(relx=0.25, rely=0.9)
 
-    def switch_pokemon(self,master, new_pokemon):
+    def switch_pokemon(self,master, new_pokemon,client_socket):
         def send_switch_receive_result():
             client_socket.send(f"switch:{new_pokemon.Name}".encode())
             self.wait_for_turn()
             result = client_socket.recv(1024).decode()
+            if result=="You Won":
+                master.result_box.configure(state="normal")
+                master.result_box.delete('0.0', "end")
+                master.result_box.insert("0.0", result)
+                master.result_box.configure(state="disabled")
+                self.wait_box.configure(state="normal")
+                self.wait_box.delete('0.0', "end")
+                self.wait_box.insert("0.0", "You Won by default: opponent left the game")
+                self.wait_box.configure(state="disabled")
+                return
 
             client_socket.send("Give results".encode())
 
@@ -356,7 +376,7 @@ class SwitchOrMove(ctk.CTkFrame):
             if self.selected_pokemon.has_status_effect():
                 img_dir = "BRN" if self.selected_pokemon.burn else "PAR" if self.selected_pokemon.paralyze else "PSN" if self.selected_pokemon.poison else "FRZ" if self.selected_pokemon.freeze else ""
                 if img_dir != "":
-                    img = Image.open(f"Assets/{img_dir}.png")
+                    img = Image.open(f"Assets/Effects/{img_dir}.png")
                     master.m_pokemon_frame.place_condition(img)
             else:
                 master.m_pokemon_frame.clear_condition()
@@ -364,7 +384,7 @@ class SwitchOrMove(ctk.CTkFrame):
             if self.opponent_pokemon.has_status_effect():
                 img_dir = "BRN" if self.opponent_pokemon.burn else "PAR" if self.opponent_pokemon.paralyze else "PSN" if self.opponent_pokemon.poison else "FRZ" if self.opponent_pokemon.freeze else ""
                 if img_dir != "":
-                    img = Image.open(f"Assets/{img_dir}.png")
+                    img = Image.open(f"Assets/Effects/{img_dir}.png")
                     master.e_pokemon_frame.place_condition(img)
             else:
                 master.e_pokemon_frame.clear_condition()
@@ -382,7 +402,7 @@ class SwitchOrMove(ctk.CTkFrame):
             if result=="Next Turn":
                 if self.selected_pokemon.HP <= 0:
                     self.return_def()
-                    self.show_team(master,show_return=False)
+                    self.show_team(client_socket,master,show_return=False)
                 else:
                     self.return_def()
             else:
@@ -399,7 +419,7 @@ class SwitchOrMove(ctk.CTkFrame):
 
 
 class Game_Screen(ctk.CTkFrame):
-    def __init__(self, master,team,selected_pokemon,opponent_pokemon, **kwargs):
+    def __init__(self, master,team,selected_pokemon,opponent_pokemon,client_socket, **kwargs):
         super().__init__(master, **kwargs)
         self.configure(width=1920, height=1080)
 
@@ -431,66 +451,52 @@ class Game_Screen(ctk.CTkFrame):
         self.m_pokemon_frame = PokemonFrame(self, selected_pokemon, selected_pokemon.HP, width=250, height=150)
         self.m_pokemon_frame.place(relx=0.45, rely=0.6)
 
-        self.switchormove = SwitchOrMove(self,team, selected_pokemon, opponent_pokemon)
+        self.switchormove = SwitchOrMove(self,team, selected_pokemon, opponent_pokemon,client_socket)
         self.switchormove.place(relx=0.6, rely=0.5)
 
         self.e_pokemon_frame = PokemonFrame(self, opponent_pokemon, opponent_pokemon.HP,width=250, height=150)
         self.e_pokemon_frame.place(relx=0.4, rely=0.1)
 
 
-# setting root
-ctk.set_appearance_mode("dark")
-root = ctk.CTk()
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-
-res = f"{screen_width}x{screen_height}"
-root.title("PokeBattle")
-root.geometry("1920x1080")
-# root.attributes("-fullscreen", "True")
-root.columnconfigure(0, weight=1)
-root.rowconfigure(0, weight=1)
 
 team = [pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Toucannon']),
-                   pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Charizard']),
-                   pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Pikachu']),
-                   pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Alakazam']),
-                   pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Hariyama']),
-                   pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Dragonite'])
-                   ]
+                   pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Charizard'])]
 
 
 
+def start_game(host = socket.gethostname() ,port=12345,root=None,team=team):
+    start=False
+    if root==None:
+        #setting root
+        root = ctk.CTk()
+        root.title("PokeBattle")
+        root.geometry("1920x1080")
+        #root.attributes("-fullscreen", "True")
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(0, weight=1)
 
-start=False
-
-# Create a socket object
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-host = socket.gethostname()
-port = 12345
-client_socket.connect((host, port))
-
-
-team_data = pickle.dumps(team)
-data_len = len(team_data).to_bytes(4, byteorder='big')
-client_socket.sendall(data_len + team_data)
-
-# Wait for the battle to start
-print("Waiting for the battle to start...")
-while not start:
-    data=client_socket.recv(1024).decode()
-    if data=="start":start=True
-print("battle starts!!")
+    # Create a socket object
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    host = socket.gethostname()
+    client_socket.connect((host, port))
 
 
-pokemon_data = recvall(client_socket)
-selected_pokemon = pickle.loads(pokemon_data)
-pokemon_data = recvall(client_socket)
-opponent_pokemon = pickle.loads(pokemon_data)
+    team_data = pickle.dumps(team)
+    data_len = len(team_data).to_bytes(4, byteorder='big')
+    client_socket.sendall(data_len + team_data)
+
+    # Wait for the battle to start
+    print("Waiting for the battle to start...")
+    while not start:
+        data=client_socket.recv(1024).decode()
+        if data=="start":start=True
+    print("battle starts!!")
 
 
-game = Game_Screen(root,team,selected_pokemon,opponent_pokemon)
-game.pack()
+    pokemon_data = recvall(client_socket)
+    selected_pokemon = pickle.loads(pokemon_data)
+    pokemon_data = recvall(client_socket)
+    opponent_pokemon = pickle.loads(pokemon_data)
 
-root.mainloop()
-print("Game closed")
+    game = Game_Screen(root,team,selected_pokemon,opponent_pokemon,client_socket)
+    game.pack()

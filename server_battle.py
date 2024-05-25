@@ -5,44 +5,26 @@ from Pokemon import pokemon
 import random
 import time
 
-# Create a socket object
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-# Get local machine name
-host = socket.gethostname()
-
-# Reserve a port for your service
-port = 12345
-
-# Bind to the port
-server_socket.bind((host, port))
-
-# Start listening for connections
-server_socket.listen(2)
-print("server is on")
-
-# Initialize a list to hold the client connections
 clients = []
 pokemon_teams = []
 
-
 # In your handle_client function
-def handle_client(client_socket,addr):
-    print(f"Accepted connection from {addr}")
+def handle_client(client_socket,addr,port):
+    print(f"Accepted connection from {addr} in port {port}")
     clients.append(client_socket)
     print(f"there are {len(clients)} clients")
     # Receive the team data from the client
     team_data = recvall(client_socket)
     team = pickle.loads(team_data)
     pokemon_teams.append(team)
-    for t in team: print(t)
     if len(clients)==2:
         for c in clients: c.send("start".encode())
-        start_battle()
+        print(f"game starts on port {port}")
+        start_battle(clients, pokemon_teams)
 
 
 
-def start_battle():
+def start_battle(clients, pokemon_teams):
     # Create instances of the active Pokémon for each team
     team1 = pokemon_teams[0]
     team2 = pokemon_teams[1]
@@ -111,8 +93,8 @@ def start_battle():
 
             
             print(result)
-            clients[0].send(result.encode())
-            clients[1].send(result.encode())
+            send_result(clients[0], result)
+            send_result(clients[1], result)
 
             
             # Wait for both clients to request the result
@@ -151,28 +133,15 @@ def start_battle():
                 send_result(clients[0],"Next Turn")
                 send_result(clients[1],"Next Turn")
 
-        except (ConnectionResetError, BrokenPipeError):
-            # Handle client disconnection
-            if clients[0] in clients:
-                clients.remove(clients[0])
-                print("Client 1 disconnected. Client 2 wins.")
-                result = "Client 2 wins!"
-                if clients:
-                    for client in clients:
-                        try:
-                            send_result(client, result)
-                        except ConnectionResetError:
-                            pass
-            else:
-                clients.remove(clients[1])
-                print("Client 2 disconnected. Client 1 wins.")
-                result = "Client 1 wins!"
-                if clients:
-                    for client in clients:
-                        try:
-                            send_result(client, result)
-                        except ConnectionResetError:
-                            pass
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            print(len(clients))
+            try:
+                send_result(clients[0], "You Won")
+                send_result(clients[1], "You Won")
+                print(f"Sent result to {clients[0]}")
+            except:
+                pass
             break
 
 
@@ -221,9 +190,28 @@ def check_team(team):
             return True
     return False
 
-while True:
-    # Accept a connection
-    client_socket, addr = server_socket.accept()
-    client_thread = threading.Thread(target=handle_client, args=(client_socket,addr,))
-    client_thread.start()
+def start_game(server_socket,host,port):
+    print(f"waiting for 2 clients on {host}:{port}")
+    server_socket.listen(2)
+    # Accept connections from two clients
+    while True:
+        # Accept a connection
+        client_socket, addr = server_socket.accept()
+        client_thread = threading.Thread(target=handle_client, args=(client_socket,addr,port,))
+        client_thread.start()
+    
+def start_server(host=socket.gethostname(), port=6969):
+    # Create a socket object
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((host, port))
+    server_socket.listen(1)
+    print(f"game server is on {host}:{port}")
+    main_server,addr =server_socket.accept()
+    print("connected to main server")
+    main_server.send("connected".encode())
+    data=main_server.recv(1024).decode()
+    if data=="start":
+        start_game(server_socket,host,port)
+    
+
 
