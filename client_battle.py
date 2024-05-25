@@ -479,7 +479,11 @@ def start_game(host = socket.gethostname() ,port=12345,root=None,team=team):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     host = socket.gethostname()
     client_socket.connect((host, port))
-
+    nt=[]
+    for t in team:
+        if t!=None:
+            nt.append(t)
+    team=nt
 
     team_data = pickle.dumps(team)
     data_len = len(team_data).to_bytes(4, byteorder='big')
