@@ -255,7 +255,6 @@ def send_public_key(client_socket):
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
-    public_key_data = pickle.dumps(public_key_data)
     public_key_data_len = len(public_key_data).to_bytes(4, byteorder='big')
     client_socket.sendall(public_key_data_len + public_key_data)
 
