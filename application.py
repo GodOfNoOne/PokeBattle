@@ -1,4 +1,3 @@
-from CTkScrollableDropdown import *
 import customtkinter as ctk
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -165,6 +164,7 @@ def class_list_to_gui(team):
 
 
 class Pokemon_Tabs(ctk.CTkTabview):
+    
     def __init__(self, master,width=1000,height=800, **kwargs):
         super().__init__(master,width=width,height=800, **kwargs)
 
@@ -183,6 +183,7 @@ class Pokemon_Tabs(ctk.CTkTabview):
 
             for j in range(4):
                 self.combo_moves[i][j].configure(variable=ctk.StringVar(self,value=""),values=self.movesets[i]["Name"].tolist())
+                self.moves[i][j]=None
 
 
             pokemon_type = [str(selected["Type1"].iloc[0]), str(selected["Type2"].iloc[0])]
@@ -243,7 +244,9 @@ class Pokemon_Tabs(ctk.CTkTabview):
             ev=[0,0,0,0,0,0]
             moves=[None,None,None,None]
 
+
             if check_submit()=="all good":
+                master.submit_label.configure(text="Team submitted")
                 for i in range(6):
                     if self.pokemon_names[i] != None:
                         name=self.pokemon_names[i]
@@ -265,6 +268,7 @@ class Pokemon_Tabs(ctk.CTkTabview):
                 
             else:
                 print(check_submit())
+                master.submit_label.configure(text=check_submit())
         
 
         for i in range(6):
@@ -498,13 +502,23 @@ class Create_Room(ctk.CTkFrame):
         self.generate_code_btn=ctk.CTkButton(self,text="Generate Room Code", command=self.generate_code,width=500,height=50,font=("Cascadia Code",28))
         self.generate_code_btn.place(rely=0.3,relx=0.35)
 
-        self.start_game_btn=ctk.CTkButton(self,text="Start Game",width=500,height=50,font=("Cascadia Code",28))
+        self.start_game_btn=ctk.CTkButton(self,text="Start Game",width=500,height=50,font=("Cascadia Code",28),command= lambda: self.start(""))
 
         self.generate_code_text=ctk.CTkTextbox(self,width=500,height=50)
         self.generate_code_text.place(rely=0.4,relx=0.35)
         self.generate_code_text.configure(state="normal")
         self.generate_code_text.insert("end","Click on Generate Room Code to get your room code")
         self.generate_code_text.configure(state="disabled")
+
+    def start(self,room_id):
+        def start_thread(self,room_id):
+            print("sending start game")
+            client_socket.send(f"start game:{welcome_frame.welcome_user.cget('text').split()[1]}".encode())
+            team_data=recvall(client_socket)
+            team = pickle.loads(team_data)
+            create_frame.forget()
+            client_battle.start_game(host=socket.gethostname(),port=int(room_id),root=root,team=team)
+        threading.Thread(target=start_thread,args=(self,room_id)).start()
 
     def generate_code(self):
         def generate_code_thread(self):
@@ -515,6 +529,7 @@ class Create_Room(ctk.CTkFrame):
                 data=client_socket.recv(1024).decode()
                 print(f"Room code: {data}")
                 self.generate_code_btn.place_forget()
+                self.start_game_btn.configure(command=lambda: self.start(data))
                 self.start_game_btn.place(rely=0.3,relx=0.35)
                 self.generate_code_text.configure(state="normal")
                 self.generate_code_text.delete("0.0","end")
@@ -539,6 +554,8 @@ class Edit_Screen(ctk.CTkFrame):
         self.pokemon_tabs.place(relx=0.25,rely=0.25)
         back_button=ctk.CTkButton(self,text="Back To Menu",command=lambda: back_to_menu(self),font=("Cascadia Code",28))
         back_button.place(relx=0,rely=0)
+        self.submit_label=ctk.CTkLabel(self,text="",font=("Cascadia Code",28))
+        self.submit_label.place(rely=0.75,relx=0.5,anchor='center')
 
 
 

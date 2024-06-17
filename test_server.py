@@ -12,8 +12,17 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 import sqlite3
-import os
 
+
+# Generate a private key for the server
+private_key = rsa.generate_private_key(
+    public_exponent=65537,
+    key_size=2048,
+    backend=default_backend()
+)
+
+# Generate a public key for the server
+public_key = private_key.public_key()
 
 
 # Create a socket object
@@ -36,7 +45,7 @@ print("server is on")
 clients = []
 server_ports = []
 
-# The target function for the client thread
+# In your handle_client function
 def handle_client(client_socket,addr):
     print(f"Accepted connection from {addr}")
     clients.append(client_socket)
@@ -60,7 +69,7 @@ def handle_client(client_socket,addr):
             else:
                 add_user_to_database(username, encrypted_password)
                 client_socket.send("success".encode()) 
-        # If the client is trying to log in
+
         elif "log in" in data:
             encrypted_username = recvall(client_socket)
             decrypted_username = decrypt_data(encrypted_username)
@@ -76,7 +85,6 @@ def handle_client(client_socket,addr):
                     if team!=None:
                         client_socket.send("yes".encode())
                         time.sleep(0.01)
-                        # Send the team data to the client
                         team_data = pickle.dumps(team)
                         team_data_len = len(team_data).to_bytes(4, byteorder='big')
                         client_socket.sendall(team_data_len + team_data)
@@ -115,15 +123,6 @@ def handle_client(client_socket,addr):
                         game_client.send("start".encode())
             else:
                 client_socket.send("no team".encode())
-        elif "start game" in data:
-            print("starting game")
-            username = data.split(":")[-1]
-            if get_team_data(username)!=None:
-                team=get_team_data(username)
-                team_data = pickle.dumps(team)
-                team_data_len = len(team_data).to_bytes(4, byteorder='big')
-                client_socket.sendall(team_data_len + team_data)
-
 
         elif "join room" in data:
             username = data.split(":")[-1]
@@ -189,7 +188,9 @@ def recvall(sock):
 def setup_database():
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
-    #cursor.execute('''DROP TABLE IF EXISTS users''')
+    cursor.execute('''
+    DROP TABLE IF EXISTS users
+                   ''')
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -237,6 +238,25 @@ def add_user_to_database(username, encrypted_password_hex):
     conn.close()
 
 
+def send_public_key(client_socket):
+    public_key_data = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    public_key_data = pickle.dumps(public_key_data)
+    public_key_data_len = len(public_key_data).to_bytes(4, byteorder='big')
+    client_socket.sendall(public_key_data_len + public_key_data)
+
+def decrypt_data(encrypted_password):
+    decrypted_password = private_key.decrypt(
+        encrypted_password,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return decrypted_password.decode()
 
 def save_team_data(team,username):
     conn = sqlite3.connect('users.db')
@@ -257,73 +277,7 @@ def get_team_data(username):
     team=pickle.loads(team_data[0])
     return team
 
-# Send the public key to the client
-def send_public_key(client_socket):
-    public_key_data = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    public_key_data = pickle.dumps(public_key_data)
-    public_key_data_len = len(public_key_data).to_bytes(4, byteorder='big')
-    client_socket.sendall(public_key_data_len + public_key_data)
 
-
-# Decrypt the encrypted password
-def decrypt_data(encrypted_password):
-    decrypted_password = private_key.decrypt(
-        encrypted_password,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-    return decrypted_password.decode()
-
-
-# Check if the private key file exists
-if not os.path.exists('private_key.pem'):
-    # Generate a private key for the server
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-        backend=default_backend()
-    )
-
-    # Save the private key to a file
-    with open('private_key.pem', 'wb') as f:
-        f.write(private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ))
-else:
-    # Load the private key from the file
-    with open('private_key.pem', 'rb') as f:
-        private_key = serialization.load_pem_private_key(
-            f.read(),
-            password=None,
-            backend=default_backend()
-        )
-
-# Check if the public key file exists
-if not os.path.exists('public_key.pem'):
-    # Generate a public key for the server
-    public_key = private_key.public_key()
-
-    # Save the public key to a file
-    with open('public_key.pem', 'wb') as f:
-        f.write(public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ))
-else:
-    # Load the public key from the file
-    with open('public_key.pem', 'rb') as f:
-        public_key = serialization.load_pem_public_key(
-            f.read(),
-            backend=default_backend()
-        )
 
 setup_database()
 while True:
@@ -331,4 +285,3 @@ while True:
     client_socket, addr = server_socket.accept()
     client_thread = threading.Thread(target=handle_client, args=(client_socket,addr,))
     client_thread.start()
-    

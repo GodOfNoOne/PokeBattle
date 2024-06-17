@@ -1,164 +1,213 @@
-import random
-from sklearn import tree
+import socket
+import threading
+import pickle
 from Pokemon import pokemon
-import pandas as pd
-import os
-import numbers as np
+import random
+import time
 
-pokemove = pd.read_csv(r"DataBases\\bridge_pokemon_moves_MAY_LEARN.csv")
-pokemon_dt = pd.read_csv(r"DataBases\\df_pokemon.csv")
-pokemon_dt = pokemon_dt.drop(columns=["Species", 'Variant', 'Generation', 'Rarity', 'Evolves_from', 'Has_gender_diff', 'VGC2022_rules', 'Monthly Usage (k)', 'Usage Percent (%)', 'Monthly Rank'])
-# pokemon_dt=pokemon_dt.drop_duplicates(subset="ID",keep="first")
-pokemon_dt = pokemon_dt.set_index("ID")
+class Game_Server:
+    def __init__(self, host=socket.gethostname(), port=6969):
+        self.host = host
+        self.port = port
+        self.server_socket = None
+        self.main_server_socket = None
+        self.clients = []
+        self.pokemon_teams = []
+    def start_server(self):
+        # Create a socket object
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(1)
+        print(f"Game server is on {self.host}:{self.port}")
+        self.main_server_socket, addr = self.server_socket.accept()
+        print("Connected to main server")
+        self.main_server_socket.send("connected".encode())
+        data = self.main_server_socket.recv(1024).decode()
+        if data == "start":
+            self.start_game()
 
+    def start_game(self):
+        print(f"Waiting for 2 self.clients on {self.host}:{self.port}")
+        self.server_socket.listen(2)
+        # Accept connections from two self.clients
+        while True:
+            # Accept a connection
+            client_socket, addr = self.server_socket.accept()
+            client_thread = threading.Thread(target=self.handle_client, args=(client_socket, addr, self.port,))
+            client_thread.start()
 
-class DecisionTreeAIAgent:
-    def __init__(self, pokemon, team):
-        self.pokemon = pokemon
-        self.team = team
-        self.action_space = get_action_space(pokemon)
-        
-        # Initialize the decision tree with a simple decision stump or a random tree
-        self.decision_tree = tree.DecisionTreeClassifier(max_depth=1, random_state=42)
-        
-        # Fit the decision tree to a dummy dataset
-        dummy_states = [(0,) * len(get_initial_state(self.pokemon, opponent_pokemon))]
-        dummy_actions = [random.choice(self.action_space)]
-        self.decision_tree.fit(dummy_states, dummy_actions)
+    def handle_client(self, client_socket, addr, port):
+        print(f"Accepted connection from {addr} in port {port}")
+        self.clients.append(client_socket)
+        print(f"There are {len(self.clients)} self.clients")
+        # Receive the team data from the client
+        team_data = self.recvall(client_socket)
+        team = pickle.loads(team_data)
+        self.pokemon_teams.append(team)
+        if len(self.clients) == 2:
+            for c in self.clients:
+                c.send("start".encode())
+            print(f"Game starts on port {port}")
+            self.start_battle(self.clients, self.pokemon_teams)
 
-    def train(self, num_episodes):
-        states = []
-        actions = []
+    def start_battle(self, clients, pokemon_teams):
+        # Create instances of the active Pokémon for each team
+        team1 = self.pokemon_teams[0]
+        team2 = self.pokemon_teams[1]
+        active_pokemon1 = team1[0]
+        active_pokemon2 = team2[0]
 
-        for episode in range(num_episodes):
-            # Initialize the game state
-            state = get_initial_state(self.pokemon, opponent_pokemon)
-            done = False
+        self.send_pokemon_data(self.clients[0], active_pokemon1)
+        self.send_pokemon_data(self.clients[0], active_pokemon2)
+        self.send_pokemon_data(self.clients[1], active_pokemon2)
+        self.send_pokemon_data(self.clients[1], active_pokemon1)
+        # Conduct the battle
+        while True:
+            try:
+                # Get the moves from the self.clients
+                print("Waiting for both self.clients to send moves")
+                action1 = self.receive_move(self.clients[0])
+                action2 = self.receive_move(self.clients[1])
+                result = ""
+                print(action1, action2)
+                if "move" in action1 and "move" in action2:
+                    move1 = action1.split(':')[1]
+                    move2 = action2.split(':')[1]
 
-            while not done:
-                # Choose an action based on the current state and the decision tree
-                action = self.choose_action(state)
+                    # Determine the order of moves
+                    first_pokemon, second_pokemon = pokemon.determine_first_move(active_pokemon1, move1, active_pokemon2, move2)
+                    # Apply the moves
+                    if first_pokemon is active_pokemon1:
+                        result += active_pokemon2.damage_calculation(move1, active_pokemon1)
+                        time.sleep(0.001)
+                        result += active_pokemon1.damage_calculation(move2, active_pokemon2)
+                    else:
+                        result += active_pokemon1.damage_calculation(move2, active_pokemon2)
+                        time.sleep(0.001)
+                        result += active_pokemon2.damage_calculation(move1, active_pokemon1)
 
-                # Take the action and observe the next state and reward
-                next_state, reward, done = take_action(self.pokemon, opponent_pokemon, action)
+                elif "switch" in action1 and "move" in action2:
+                    switching = action1.split(":")[1]
+                    for t in team1:
+                        if t.Name == switching:
+                            result += f"{active_pokemon1.Name} was switched to {switching}\n"
+                            active_pokemon1 = t
 
-                # Update the decision tree
-                states.append(state)
-                actions.append(action)
+                    move = action2.split(":")[1]
+                    result += active_pokemon1.damage_calculation(move, active_pokemon2)
+                elif "switch" in action2 and "move" in action1:
+                    switching = action2.split(":")[1]
+                    for t in team2:
+                        if t.Name == switching:
+                            result += f"{active_pokemon2.Name} was switched to {switching}\n"
+                            active_pokemon2 = t
 
-                state = next_state
+                    move = action1.split(":")[1]
+                    result += active_pokemon2.damage_calculation(move, active_pokemon1)
+                else:
+                    switching1 = action1.split(":")[1]
+                    switching2 = action2.split(":")[1]
+                    for t in team2:
+                        if t.Name == switching2:
+                            result += f"{active_pokemon2.Name} was switched to {switching2}\n"
+                            active_pokemon2 = t
 
-            # Fit the decision tree to the collected data
-            self.decision_tree.fit(states, actions)
+                    for t in team1:
+                        if t.Name == switching1:
+                            result += f"{active_pokemon2.Name} was switched to {switching1}\n"
+                            active_pokemon1 = t
 
-            # Save the decision tree after each episode
-            self.save_decision_tree(f"DT/decision_tree_{episode}.pkl")
+                print(result)
+                self.send_result(self.clients[0], result)
+                self.send_result(self.clients[1], result)
 
-    def choose_action(self, state):
-        # Use the decision tree to predict the best action for the current state
-        action = self.decision_tree.predict([state])
-        return action
+                # Wait for both self.clients to request the result
+                responses = [False, False]
+                while not all(responses):
+                    for i, client in enumerate(self.clients):
+                        response = client.recv(1024).decode()
+                        if response == "Give results":
+                            responses[i] = True
+                print("Sending Pokemon\n")
 
-    def save_decision_tree(self, filename):
-        # Save the decision tree to a file
-        import pickle
-        os.makedirs("DT", exist_ok=True)  # Create the "DT" folder if it doesn't exist
-        with open(filename, 'wb') as f:
-            pickle.dump(self.decision_tree, f)
+                # Send Pokémon status after both self.clients request it
+                self.send_pokemon_data(self.clients[0], active_pokemon1)
+                self.send_pokemon_data(self.clients[0], active_pokemon2)
+                self.send_pokemon_data(self.clients[1], active_pokemon2)
+                self.send_pokemon_data(self.clients[1], active_pokemon1)
 
-    def load_decision_tree(self, filename):
-        # Load the decision tree from a file
-        import pickle
-        with open(filename, 'rb') as f:
-            self.decision_tree = pickle.load(f)
+                team_data = pickle.dumps(team1)
+                data_len = len(team_data).to_bytes(4, byteorder='big')
+                self.clients[0].sendall(data_len + team_data)
 
-def get_action_space(pokemon):
-    action_space = []
+                team_data = pickle.dumps(team2)
+                data_len = len(team_data).to_bytes(4, byteorder='big')
+                self.clients[1].sendall(data_len + team_data)
 
-    # Add available moves as actions
-    for move in pokemon.move_list:
-        action_space.append(("attack", move))
+                # Sending results if someone won, or not
+                if not self.check_team(team1) or not self.check_team(team2):
+                    if not self.check_team(team1):
+                        self.send_result(self.clients[0], "You Lost")
+                        self.send_result(self.clients[1], "You Won")
+                    else:
+                        self.send_result(self.clients[1], "You Lost")
+                        self.send_result(self.clients[0], "You Won")
+                else:
+                    self.send_result(self.clients[0], "Next Turn")
+                    self.send_result(self.clients[1], "Next Turn")
 
-    # Add the option to switch Pokemon
-    action_space.append(("switch",))
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                print(len(self.clients))
+                try:
+                    self.send_result(self.clients[0], "You Won")
+                    self.send_result(self.clients[1], "You Won")
+                    print(f"Sent result to {self.clients[0]}")
+                except:
+                    pass
+                break
 
-    return action_space
+    def recvall(self, sock):
+        # First, receive the message length (assume it's a 4-byte integer)
+        msg_len_data = b''
+        while len(msg_len_data) < 4:
+            chunk = sock.recv(4 - len(msg_len_data))
+            if not chunk:
+                raise RuntimeError("Socket connection broken")
+            msg_len_data += chunk
 
-def get_initial_state(my_pokemon, opponent_pokemon):
-    """
-    Returns the initial state of the game as a tuple.
-    """
-    state = (
-        my_pokemon.HP, my_pokemon.Attack, my_pokemon.Defense, my_pokemon.Special_attack, my_pokemon.Special_defense, my_pokemon.Speed,
-        opponent_pokemon.HP, opponent_pokemon.Attack, opponent_pokemon.Defense, opponent_pokemon.Special_attack, opponent_pokemon.Special_defense, opponent_pokemon.Speed,
-        my_pokemon.burn, my_pokemon.paralyze, my_pokemon.poison, my_pokemon.freeze, my_pokemon.confuse,
-        opponent_pokemon.burn, opponent_pokemon.paralyze, opponent_pokemon.poison, opponent_pokemon.freeze, opponent_pokemon.confuse
-    )
-    return state
+        msg_len = int.from_bytes(msg_len_data, byteorder='big')
 
-def take_action(my_pokemon, opponent_pokemon, action):
-    """
-    Performs the given action and returns the next state, reward, and whether the battle is done or not.
-    """
-    if isinstance(action, np.ndarray):
-        # The action is a NumPy array, so we need to extract the value
-        action = action[0]
+        # Now, receive the actual message data
+        data = b''
+        while len(data) < msg_len:
+            chunk = sock.recv(msg_len - len(data))
+            if not chunk:
+                raise RuntimeError("Socket connection broken")
+            data += chunk
 
-    if action[0] == "attack":
-        # Perform the attack move
-        move_name = action[1]
-        result = opponent_pokemon.damage_calculation(move_name, my_pokemon)
-        opponent_damage = -opponent_pokemon.HP
-        my_damage = my_pokemon.damage_calculation(opponent_pokemon.move_list[random.randint(0, 3)], opponent_pokemon)
-        reward = opponent_damage + my_damage
+        return data
 
-    elif action[0] == "switch":
-        # Switch to the next available Pokemon
-        available_pokemon = [p for p in my_pokemon.team if p.HP > 0 and p != my_pokemon]
-        if available_pokemon:
-            my_pokemon = random.choice(available_pokemon)
-            reward = 0
-        else:
-            # No available Pokemon to switch to
-            reward = -1000  # Assign a large negative reward
+    def receive_move(self, client):
+        # Receive the move choice from the client
+        move_data = client.recv(1024)
+        move = move_data.decode()
+        return move
 
-    # Get the next state
-    next_state = get_initial_state(my_pokemon, opponent_pokemon)
+    def send_pokemon_data(self, client, pokemon):
+        # Serialize the Pokémon object
+        pokemon_data = pickle.dumps(pokemon)
 
-    # Check if the battle is done
-    done = (my_pokemon.HP <= 0) or (opponent_pokemon.HP <= 0)
+        data_len = len(pokemon_data).to_bytes(4, byteorder='big')
+        client.sendall(data_len + pokemon_data)
 
-    return next_state, reward, done
+    def send_result(self, client, result):
+        # Send the result to the client
+        client.send(result.encode())
 
-# Usage example
-my_team = [pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Toxapex']),
-           pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Charizard']),
-           pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Pikachu']),
-           pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Alakazam']),
-           pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Hariyama']),
-           pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Dragonite'])]
-
-my_pokemon = my_team[0]
-opponent_pokemon = pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Toucannon'])
-
-ai_agent = DecisionTreeAIAgent(my_pokemon, my_team)
-ai_agent.train(num_episodes=1000)
-
-# Test the trained AI agent
-ai_pokemon = my_team[0]
-opponent_pokemon = pokemon(pokemon_dt.loc[pokemon_dt['Name'] == 'Venusaur'])
-
-while ai_pokemon.HP > 0 and opponent_pokemon.HP > 0:
-    state = get_initial_state(ai_pokemon, opponent_pokemon)
-    action = ai_agent.choose_action(state)
-    if action[0] == "attack":
-        # The AI chose to attack
-        result = opponent_pokemon.damage_calculation(action[1], ai_pokemon)
-        ai_pokemon.damage_calculation(opponent_pokemon.move_list[random.randint(0, 3)], opponent_pokemon)
-    else:
-        # The AI chose to switch Pokemon
-        ai_pokemon = action[1]
-
-    # Print the result or update the game state
-    print(ai_pokemon)
-    print(opponent_pokemon)
+    def check_team(self, team):
+        # Return false if no pokemon has hp in the team
+        for t in team:
+            if t.HP > 0:
+                return True
+        return False

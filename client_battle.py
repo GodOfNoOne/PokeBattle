@@ -140,7 +140,12 @@ class SwitchOrMove(ctk.CTkFrame):
                 res = requests.get(url)
                 img = Image.open(BytesIO(res.content))
                 img.save(f"Cached_Images/{pokemon.Name}.png")
-
+    def cache_opponenet_image(self,opponent_pokemon):
+        url = opponent_pokemon.img
+        res = requests.get(url)
+        img = Image.open(BytesIO(res.content))
+        img.save(f"Cached_Images/{opponent_pokemon.Name}.png")
+        
     def __init__(self, master, team_pokemon, selected_pokemon, opponent_pokemon,client_socket, **kwargs):
         super().__init__(master, **kwargs)
         self.team = team_pokemon
@@ -225,15 +230,11 @@ class SwitchOrMove(ctk.CTkFrame):
             self.selected_pokemon = pickle.loads(pokemon_data)
             pokemon_data = recvall(client_socket)
             self.opponent_pokemon = pickle.loads(pokemon_data)
+            self.cache_opponenet_image(self.opponent_pokemon)
 
             team_data = recvall(client_socket)
             self.team = pickle.loads(team_data)
-            
 
-            img = Image.open(f"Cached_Images/{self.selected_pokemon.Name}.png")
-            img = ImageOps.mirror(img)
-            img = ctk.CTkImage(img, size=(250, 250))
-            self.master.m_pokemon_label.configure(image=img)
 
             img = Image.open(f"Cached_Images/{self.opponent_pokemon.Name}.png")
             img = ctk.CTkImage(img, size=(250, 250))
@@ -359,6 +360,7 @@ class SwitchOrMove(ctk.CTkFrame):
             self.selected_pokemon = pickle.loads(pokemon_data)
             pokemon_data = recvall(client_socket)
             self.opponent_pokemon = pickle.loads(pokemon_data)
+            self.cache_opponenet_image(self.opponent_pokemon)
 
             team_data = recvall(client_socket)
             self.team = pickle.loads(team_data)
